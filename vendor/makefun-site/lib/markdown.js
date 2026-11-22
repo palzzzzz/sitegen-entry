@@ -94,108 +94,124 @@ export function lex(src) {
   return tokens;
 }
 
-/** The characters a backslash escapes. */
-const ESCAPABLE = new Set(['\\', '`', '*', '_', '[', ']', '(', ')', '#', '+', '-', '.', '!', '>']);
+/** The characters a backslash escapes, by code (one byte each: all are ASCII). */
+const ESCAPABLE = new Uint8Array(128);
+for (const c of '\\`*_[]()#+-.!>') ESCAPABLE[c.charCodeAt(0)] = 1;
 
-/** The first index from `from` where `s` holds `what` outside a backslash escape, or -1. */
-function findUnescaped(s, what, from) {
-  for (let j = from; j <= s.length - what.length; j++) {
-    if (s[j] === '\\' && j + 1 < s.length && ESCAPABLE.has(s[j + 1])) {
-      j++;
+/** Whether the character at `j` of `s` is one a backslash escapes. */
+function escapableAt(s, j) {
+  const d = s.charCodeAt(j);
+  return d < 128 && ESCAPABLE[d] === 1;
+}
+
+/** The entity of each character HTML escaping replaces, by code. */
+const ENTITY = { 38: '&amp;', 60: '&lt;', 62: '&gt;', 34: '&quot;', 39: '&#39;' };
+
+// Scanning is done by the regex engine (test with lastIndex: no match object), not by a per-character loop: a run is
+// short and a loop runs in the slow tiers for most of it.
+/** The next character `inline` has to act on: one HTML escapes, or a backslash, backtick, * or [. */
+const SPECIAL = /[&<>"'\\`*[]/g;
+const BACKSLASH_OR_BOLD = /\\|\*\*/g;
+const BACKSLASH_OR_STAR = /\\|\*/g;
+const BACKSLASH_OR_BRACKET = /\\|\]/g;
+
+/** The first index from `from` where `re` (a backslash, or what is looked for) matches outside a backslash escape, or -1. */
+function findUnescaped(re, s, from) {
+  let i = from;
+  for (;;) {
+    re.lastIndex = i;
+    if (!re.test(s)) return -1;
+    const end = re.lastIndex;
+    const p = re === BACKSLASH_OR_BOLD && s.charCodeAt(end - 1) === 42 && s.charCodeAt(end - 2) === 42 ? end - 2 : end - 1;
+    if (s.charCodeAt(p) === 92) {
+      i = p + 1 < s.length && escapableAt(s, p + 1) ? p + 2 : p + 1;
       continue;
     }
-    if (s.startsWith(what, j)) return j;
+    return p;
   }
-  return -1;
 }
 
 /** The first single * from `from` (one whose run is not **), outside an escape, or -1. */
 function findSingleStar(s, from) {
-  for (let j = from; j < s.length; j++) {
-    const c = s[j];
-    if (c === '\\' && j + 1 < s.length && ESCAPABLE.has(s[j + 1])) {
-      j++;
+  let i = from;
+  for (;;) {
+    BACKSLASH_OR_STAR.lastIndex = i;
+    if (!BACKSLASH_OR_STAR.test(s)) return -1;
+    const p = BACKSLASH_OR_STAR.lastIndex - 1;
+    if (s.charCodeAt(p) === 92) {
+      i = p + 1 < s.length && escapableAt(s, p + 1) ? p + 2 : p + 1;
       continue;
     }
-    if (c !== '*') continue;
-    if (s[j + 1] === '*') {
-      j++;
+    if (s.charCodeAt(p + 1) === 42) {
+      i = p + 2;
       continue;
     }
-    return j;
+    return p;
   }
-  return -1;
 }
 
 /** `s` rendered inline; `env.link(target)` is a link's href. */
 export function inline(s, env) {
-  let out = '';
-  let i = 0;
   const n = s.length;
-  while (i < n) {
-    const c = s[i];
-    if (c === '\\' && i + 1 < n && ESCAPABLE.has(s[i + 1])) {
-      out += escapeHtml(s[i + 1]);
-      i += 2;
-      continue;
-    }
-    if (c === '`') {
-      const j = s.indexOf('`', i + 1);
-      if (j > i + 1) {
-        out += `<code>${escapeHtml(s.slice(i + 1, j))}</code>`;
-        i = j + 1;
-      } else {
-        out += '`';
-        i++;
+  let out = '';
+  let last = 0; // the start of the plain text not yet written
+  let i = 0;
+  for (;;) {
+    SPECIAL.lastIndex = i;
+    if (!SPECIAL.test(s)) break;
+    const p = SPECIAL.lastIndex - 1;
+    const c = s.charCodeAt(p);
+    switch (c) {
+      case 38: // & < > " ': the entity
+      case 60:
+      case 62:
+      case 34:
+      case 39:
+        out += (last < p ? s.slice(last, p) : '') + ENTITY[c];
+        i = last = p + 1;
+        break;
+      case 92: // a backslash before an escapable character writes that character
+        if (p + 1 < n && escapableAt(s, p + 1)) {
+          out += (last < p ? s.slice(last, p) : '') + (s.charCodeAt(p + 1) === 62 ? '&gt;' : s[p + 1]);
+          i = last = p + 2;
+        } else i = p + 1;
+        break;
+      case 96: {
+        const j = s.indexOf('`', p + 1);
+        if (j > p + 1) {
+          out += (last < p ? s.slice(last, p) : '') + '<code>' + escapeHtml(s.slice(p + 1, j)) + '</code>';
+          i = last = j + 1;
+        } else i = p + 1;
+        break;
       }
-      continue;
-    }
-    if (c === '*') {
-      if (s[i + 1] === '*') {
-        const j = findUnescaped(s, '**', i + 2);
-        if (j > i + 2) {
-          out += `<strong>${inline(s.slice(i + 2, j), env)}</strong>`;
-          i = j + 2;
+      case 42:
+        if (s.charCodeAt(p + 1) === 42) {
+          const j = findUnescaped(BACKSLASH_OR_BOLD, s, p + 2);
+          if (j > p + 2) {
+            out += (last < p ? s.slice(last, p) : '') + '<strong>' + inline(s.slice(p + 2, j), env) + '</strong>';
+            i = last = j + 2;
+          } else i = p + 2;
         } else {
-          out += '**';
-          i += 2;
+          const j = findSingleStar(s, p + 1);
+          if (j > p + 1) {
+            out += (last < p ? s.slice(last, p) : '') + '<em>' + inline(s.slice(p + 1, j), env) + '</em>';
+            i = last = j + 1;
+          } else i = p + 1;
         }
-        continue;
+        break;
+      default: {
+        // [
+        const k = findUnescaped(BACKSLASH_OR_BRACKET, s, p + 1);
+        const m = k !== -1 && s.charCodeAt(k + 1) === 40 ? s.indexOf(')', k + 2) : -1;
+        const target = m === -1 ? '' : s.slice(k + 2, m);
+        if (target !== '' && !/\s/.test(target)) {
+          out += (last < p ? s.slice(last, p) : '') + '<a href="' + escapeHtml(env.link(target)) + '">' + inline(s.slice(p + 1, k), env) + '</a>';
+          i = last = m + 1;
+        } else i = p + 1;
       }
-      const j = findSingleStar(s, i + 1);
-      if (j > i + 1) {
-        out += `<em>${inline(s.slice(i + 1, j), env)}</em>`;
-        i = j + 1;
-      } else {
-        out += '*';
-        i++;
-      }
-      continue;
     }
-    if (c === '[') {
-      const k = findUnescaped(s, ']', i + 1);
-      const m = k !== -1 && s[k + 1] === '(' ? s.indexOf(')', k + 2) : -1;
-      const target = m === -1 ? '' : s.slice(k + 2, m);
-      if (target !== '' && !/\s/.test(target)) {
-        out += `<a href="${escapeHtml(env.link(target))}">${inline(s.slice(i + 1, k), env)}</a>`;
-        i = m + 1;
-        continue;
-      }
-      out += '[';
-      i++;
-      continue;
-    }
-    // A run of characters none of which opens anything: escaping is per character, so the run is escaped at once.
-    // (c itself is taken whatever it is: a lone backslash or * . lands here too.)
-    let j = i + 1;
-    for (; j < n; j++) {
-      const d = s.charCodeAt(j);
-      if (d === 92 || d === 96 || d === 42 || d === 91) break;
-    }
-    out += j === i + 1 ? escapeHtml(c) : escapeHtml(s.slice(i, j));
-    i = j;
   }
-  return out;
+  return last === 0 ? out + s : last < n ? out + s.slice(last) : out;
 }
 
 /**
