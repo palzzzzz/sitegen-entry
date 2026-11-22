@@ -177,19 +177,26 @@ function tags(b) {
   b.tags = [...bySlug.values()].sort((x, y) => y.posts.length - x.posts.length || byCodeUnits(x.slug, y.slug));
 }
 
+/** A page's date in words ("" with no date), worked out once per page. */
+const dateLongOf = (s) => (s.dateLong ??= s.data.date === undefined ? '' : longDate(s.data.date));
+
 /** A page's link record as templates read it. */
-const linkOf = (s) => (s === null ? null : { title: s.data.title, url: s.url, date: s.data.date ?? '', date_long: s.data.date === undefined ? '' : longDate(s.data.date) });
+const linkOf = (s) => (s === null ? null : { title: s.data.title, url: s.url, date: s.data.date ?? '', date_long: dateLongOf(s) });
 
 /** A tag as templates read it (its posts as cards). */
 const tagOf = (b, t) => ({ name: t.name, slug: t.slug, url: t.url, count: t.posts.length, posts: t.posts.map((p) => b.cards.get(p)) });
 
-/** A post's card, as lists show it. */
+/** A page's card, as lists show it, worked out once per page (a post's page reads the card its lists show). */
 function cardOf(s) {
+  return (s.card ??= makeCard(s));
+}
+
+function makeCard(s) {
   return {
     title: s.data.title,
     url: s.url,
     date: s.data.date ?? '',
-    date_long: s.data.date === undefined ? '' : longDate(s.data.date),
+    date_long: dateLongOf(s),
     summary: s.data.summary ?? '',
     excerpt: s.excerpt,
     reading_minutes: Math.max(1, Math.ceil(wordsOf(s.body) / 200)),
