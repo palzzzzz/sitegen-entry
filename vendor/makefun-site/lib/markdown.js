@@ -131,9 +131,10 @@ function findSingleStar(s, from) {
 export function inline(s, env) {
   let out = '';
   let i = 0;
-  while (i < s.length) {
+  const n = s.length;
+  while (i < n) {
     const c = s[i];
-    if (c === '\\' && i + 1 < s.length && ESCAPABLE.has(s[i + 1])) {
+    if (c === '\\' && i + 1 < n && ESCAPABLE.has(s[i + 1])) {
       out += escapeHtml(s[i + 1]);
       i += 2;
       continue;
@@ -184,8 +185,15 @@ export function inline(s, env) {
       i++;
       continue;
     }
-    out += escapeHtml(c);
-    i++;
+    // A run of characters none of which opens anything: escaping is per character, so the run is escaped at once.
+    // (c itself is taken whatever it is: a lone backslash or * . lands here too.)
+    let j = i + 1;
+    for (; j < n; j++) {
+      const d = s.charCodeAt(j);
+      if (d === 92 || d === 96 || d === 42 || d === 91) break;
+    }
+    out += j === i + 1 ? escapeHtml(c) : escapeHtml(s.slice(i, j));
+    i = j;
   }
   return out;
 }
