@@ -26,7 +26,10 @@ const value = (d) => {
   for (let k = rnd(5); k--; ) Object.defineProperty(o, pick(KEYS), { value: value(d + 1), enumerable: true, writable: true, configurable: true });
   return o;
 };
-const path = () => Array.from({ length: 1 + rnd(3) }, () => pick(KEYS)).join('.');
+const LOOPY = ['loop', 'loop.index', 'loop.first', 'loop.last', 'loop.length', 'loop.index.x', 'loop.nope', 'x.loop', 'x.index', 'y.first', 'items.length'];
+const plain = () => Array.from({ length: 1 + rnd(3) }, () => pick(KEYS)).join('.');
+// value positions (var, raw, if) also read loop's own names; for sources stay plain so output sizes stay bounded
+const path = () => (rnd(3) === 0 ? pick(LOOPY) : plain());
 const NAMES = ['x', 'y', 'loop', 'a', 'item', 'toString', '__proto__', 'n'];
 const tpl = (d) => {
   let s = '';
@@ -38,7 +41,7 @@ const tpl = (d) => {
     else if (r === 3) s += pick(['\n', ' ', '  \t', '{', '}', '{ ', '% ']);
     else if (r === 4) s += `{% include "${pick(['t1', 't2', 't3', 'gone', 'self'])}" %}`;
     else if (r === 5) s += `{{${pick(['', '{'])}${path()}${pick(['}}', '}}}'])}`;
-    else if (r <= 8) s += `${pick(['', '  ', '\n', ' x '])}{% for ${pick(NAMES)} in ${path()} %}${pick(['', '\n'])}${tpl(d + 1)}{% endfor %}${pick(['', '\n', ' '])}`;
+    else if (r <= 8) s += `${pick(['', '  ', '\n', ' x '])}{% for ${pick(NAMES)} in ${plain()} %}${pick(['', '\n'])}${tpl(d + 1)}{% endfor %}${pick(['', '\n', ' '])}`;
     else s += `${pick(['', '  ', '\n'])}{% if ${pick(['', 'not '])}${path()} %}${tpl(d + 1)}${rnd(2) ? `{% else %}${tpl(d + 1)}` : ''}{% endif %}${pick(['', '\n'])}`;
   }
   if (rnd(60) === 0) s += pick(['{% endfor %}', '{% if a %}', '{% else %}', '{{ a', '{% bogus %}', '{{ 1a }}']);
