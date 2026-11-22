@@ -3,24 +3,21 @@
 /** The HTML escape table, in this order: & < > " ' (README.md). */
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
+/** The characters escaping replaces; found by the regex engine (test + lastIndex), not a per-character loop. */
+const ESCAPABLE = /[&<>"']/g;
+
 /** `text` with & < > " and ' escaped. */
 export function escapeHtml(text) {
-  const n = text.length;
+  ESCAPABLE.lastIndex = 0;
+  if (!ESCAPABLE.test(text)) return text;
   let out = '';
   let last = 0;
-  for (let i = 0; i < n; i++) {
-    const c = text.charCodeAt(i);
-    let r;
-    if (c === 38) r = '&amp;';
-    else if (c === 60) r = '&lt;';
-    else if (c === 62) r = '&gt;';
-    else if (c === 34) r = '&quot;';
-    else if (c === 39) r = '&#39;';
-    else continue;
-    out += last < i ? text.slice(last, i) + r : r;
-    last = i + 1;
-  }
-  return last === 0 ? text : last < n ? out + text.slice(last) : out;
+  do {
+    const p = ESCAPABLE.lastIndex - 1;
+    out += (last < p ? text.slice(last, p) : '') + ESCAPES[text[p]];
+    last = p + 1;
+  } while (ESCAPABLE.test(text));
+  return last < text.length ? out + text.slice(last) : out;
 }
 
 /** The most characters a slug keeps before a collision suffix. */
