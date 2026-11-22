@@ -23,8 +23,20 @@ const byCodeUnits = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** The words of a body: its runs of characters other than whitespace. */
 function wordsOf(text) {
-  const m = text.match(/\S+/g);
-  return m === null ? 0 : m.length;
+  let words = 0;
+  let inWord = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    // JavaScript's \s: tab to carriage return, space, no-break space, Ogham space, en quad to hair space, the line and
+    // paragraph separators, narrow no-break space, medium mathematical space, ideographic space and the byte order mark.
+    const space =
+      c === 32 ||
+      (c >= 9 && c <= 13) ||
+      (c >= 0xa0 && (c === 0xa0 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a) || c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000 || c === 0xfeff));
+    if (!space && !inWord) words++;
+    inWord = !space;
+  }
+  return words;
 }
 
 /** `rel` (a link's path, "/"-separated) from the directory `dir` of a source, or null when it climbs out of the root. */
