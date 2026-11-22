@@ -5,7 +5,22 @@ const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&
 
 /** `text` with & < > " and ' escaped. */
 export function escapeHtml(text) {
-  return text.replace(/[&<>"']/g, (c) => ESCAPES[c]);
+  const n = text.length;
+  let out = '';
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    const c = text.charCodeAt(i);
+    let r;
+    if (c === 38) r = '&amp;';
+    else if (c === 60) r = '&lt;';
+    else if (c === 62) r = '&gt;';
+    else if (c === 34) r = '&quot;';
+    else if (c === 39) r = '&#39;';
+    else continue;
+    out += last < i ? text.slice(last, i) + r : r;
+    last = i + 1;
+  }
+  return last === 0 ? text : last < n ? out + text.slice(last) : out;
 }
 
 /** The most characters a slug keeps before a collision suffix. */
