@@ -48,7 +48,7 @@ const tpl = (d) => {
   return s;
 };
 const escape = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-const attempt = (lib, srcs, vars) => {
+const attempt = (lib, srcs, vars, vars2) => {
   const templates = new Map();
   const errs = [];
   for (const [name, src] of Object.entries(srcs)) {
@@ -56,9 +56,14 @@ const attempt = (lib, srcs, vars) => {
   }
   const ctx = { templates, escape };
   const outs = [];
-  for (const name of templates.keys()) {
-    try { outs.push(lib.renderNodes(templates.get(name), { vars, parent: null }, ctx, 0)); } catch (e) { outs.push('THROW ' + e.message); }
-  }
+  // Several renders in one context, so memoized includes are asked again under changed and unchanged scopes.
+  const page = { vars, parent: null };
+  const page2 = { vars: vars2, parent: null };
+  const scopes = [page, page2, { name: 'x', x: vars.x, k: 0, len: 2, parent: page }, { name: 'x', x: vars.x, k: 1, len: 2, parent: page }, { name: 'y', x: vars2.y, k: 0, len: 2, parent: page2 }, page, { name: 'loop', x: vars.items, k: 1, len: 3, parent: page }, page2];
+  for (const scope of scopes)
+    for (const name of templates.keys()) {
+      try { outs.push(lib.renderNodes(templates.get(name), scope, ctx, 0)); } catch (e) { outs.push('THROW ' + e.message); }
+    }
   return JSON.stringify([errs, outs]);
 };
 let bad = 0;
@@ -67,8 +72,12 @@ for (let k = 0; k < count; k++) {
   const srcs = { t1: tpl(0), t2: tpl(0), t3: tpl(0), self: tpl(0) + '{% include "self" %}' };
   const vars = {};
   for (let j = rnd(8); j--; ) Object.defineProperty(vars, pick(KEYS), { value: value(0), enumerable: true, writable: true, configurable: true });
-  const a = attempt(old, srcs, vars);
-  const b = attempt(cur, srcs, vars);
+  const vars2 = { ...vars };
+  const kk = pick(KEYS);
+  if (rnd(2) === 0) vars2[kk] = value(0);
+  else delete vars2[kk];
+  const a = attempt(old, srcs, vars, vars2);
+  const b = attempt(cur, srcs, vars, vars2);
   if (a.length > 40) nonTrivial++;
   if (a !== b && bad++ < 3) console.log('DIFF', JSON.stringify(srcs), '\n vars', JSON.stringify(vars), '\n old', a.slice(0, 300), '\n new', b.slice(0, 300));
 }
